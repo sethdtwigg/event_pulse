@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() => runApp(const CheckoutsApp());
 
 class CheckoutsApp extends StatelessWidget {
-  const CheckoutsApp({Key? key}) : super(key: key);
+  const CheckoutsApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -23,10 +23,10 @@ class CheckoutsApp extends StatelessWidget {
 }
 
 class CheckoutsScreen extends StatefulWidget {
-  const CheckoutsScreen({Key? key}) : super(key: key);
+  const CheckoutsScreen({super.key});
 
   @override
-  _CheckoutsScreenState createState() => _CheckoutsScreenState();
+  State<CheckoutsScreen> createState() => _CheckoutsScreenState();
 }
 
 class _CheckoutsScreenState extends State<CheckoutsScreen> {
@@ -235,64 +235,71 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
               children: [
                 Padding(
                   padding: const EdgeInsets.all(8.0),
-                  child: DropdownButton<String>(
-                    value: selectedEventId,
-                    hint: const Text('Select an event'),
-                    onChanged: (value) {
-                      setState(() {
-                        selectedEventId = value;
-                        checkedOutPeople = [];
-                        previousPeople = [];
-                      });
-                      _fetchCheckouts();
-                    },
-                    items: events.map((event) {
-                      return DropdownMenuItem<String>(
-                        value: event['id'],
-                        child: Text(event['title'] ?? 'Untitled'),
-                      );
-                    }).toList(),
-                  ),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.vertical,
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        sortColumnIndex: sortBy == 'name' ? 0 : 1,
-                        sortAscending: sortAsc,
-                        columns: [
-                          DataColumn(
-                            label: const Text('Name'),
-                            onSort: (_, __) => _onSort('name'),
-                          ),
-                          DataColumn(
-                            label: const Text('Checked Out At'),
-                            onSort: (_, __) => _onSort('checked_out_at'),
-                          ),
-                        ],
-                        rows: checkedOutPeople.map((person) {
-                          return DataRow(
-                            color: _isNew(person)
-                                ? WidgetStateProperty.all(Colors.yellow[100])
-                                : null,
-                            cells: [
-                              DataCell(Text(person['name'] ?? '')),
-                              DataCell(Text(person['checked_out_at'] ?? '')),
-                            ],
-                          );
-                        }).toList(),
-                      ),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 300),
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: selectedEventId,
+                      hint: const Text('Select an event'),
+                      onChanged: (value) {
+                        setState(() {
+                          selectedEventId = value;
+                          checkedOutPeople = [];
+                          previousPeople = [];
+                        });
+						            _fetchCheckouts();
+                      },
+                      items: events.map((event) {
+                        return DropdownMenuItem<String>(
+                          value: event['id'],
+                          child: Text(event['title'] ?? 'Untitled'),
+                        );
+                      }).toList(),
                     ),
                   ),
                 ),
+                if (checkedOutPeople.isNotEmpty)
+                  Expanded(
+                    child: Center(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.vertical,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            sortColumnIndex: sortBy == 'name' ? 0 : 1,
+                            sortAscending: sortAsc,
+                            columns: [
+                              DataColumn(
+                                label: const Text('Name'),
+                                onSort: (_, __) => _onSort('name'),
+                              ),
+                              DataColumn(
+                                label: const Text('Checked Out At'),
+                                onSort: (_, __) => _onSort('checked_out_at'),
+                              ),
+                            ],
+                            rows: checkedOutPeople.map((person) {
+                              return DataRow(
+                                color: _isNew(person)
+                                    ? WidgetStateProperty.all(Colors.yellow[100])
+                                    : null,
+                                cells: [
+                                  DataCell(Text(person['name'] ?? '')),
+                                  DataCell(Text(person['checked_out_at'] ?? '')),
+                                ],
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
           Positioned(
             bottom: 4,
-            right: 24,
+            right: 16,
             child: Opacity(
               opacity: 0.4,
               child: Text(
@@ -320,7 +327,7 @@ class SettingsDialog extends StatefulWidget {
   });
 
   @override
-  _SettingsDialogState createState() => _SettingsDialogState();
+  State<SettingsDialog> createState() => _SettingsDialogState();
 }
 
 class _SettingsDialogState extends State<SettingsDialog> {
