@@ -31,7 +31,7 @@ class CheckoutsScreen extends StatefulWidget {
 
 class _CheckoutsScreenState extends State<CheckoutsScreen> {
   final String apiBase = 'https://api.planningcenteronline.com/check-ins/v2';
-  final String pat = base64.encode(utf8.encode('client:secret'));
+  final String pat = base64.encode(utf8.encode('client:your_personal_access_token_here'));
 
   String? selectedEventId;
   List<Map<String, String>> checkedOutPeople = [];
@@ -45,6 +45,7 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
   int pollInterval = 5;
   int countdown = 5;
   int resultLimit = 100;
+  bool onlyToday = false;
 
   @override
   void initState() {
@@ -59,6 +60,7 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
     setState(() {
       pollInterval = prefs.getInt('pollInterval') ?? 5;
       resultLimit = prefs.getInt('resultLimit') ?? 100;
+      onlyToday = prefs.getBool('onlyToday') ?? false;
     });
   }
 
@@ -66,6 +68,7 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
     final prefs = await SharedPreferences.getInstance();
     prefs.setInt('pollInterval', pollInterval);
     prefs.setInt('resultLimit', resultLimit);
+    prefs.setBool('onlyToday', onlyToday);
   }
 
   void _startTimers() {
@@ -132,7 +135,14 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
         final List<dynamic> checkIns = body['data'];
 
         final validCheckouts = checkIns.where((entry) {
-          return entry['attributes']['checked_out_at'] != null;
+          final timeStr = entry['attributes']['checked_out_at'];
+          if (timeStr == null) return false;
+          if (onlyToday) {
+            final time = DateTime.parse(timeStr).toLocal();
+            final now = DateTime.now();
+            return time.year == now.year && time.month == now.month && time.day == now.day;
+          }
+          return true;
         }).map<Map<String, String>>((entry) {
           final attrs = entry['attributes'];
           final formattedTime = attrs['checked_out_at'] != null
@@ -207,10 +217,12 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
                   builder: (_) => SettingsDialog(
                     pollInterval: pollInterval,
                     resultLimit: resultLimit,
-                    onApply: (newInterval, newLimit) {
+                    onlyToday: onlyToday,
+                    onApply: (newInterval, newLimit, newOnlyToday) {
                       setState(() {
                         pollInterval = newInterval;
                         resultLimit = newLimit;
+                        onlyToday = newOnlyToday;
                         countdown = newInterval;
                         _startTimers();
                         _savePreferences();
@@ -317,12 +329,14 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
 class SettingsDialog extends StatefulWidget {
   final int pollInterval;
   final int resultLimit;
-  final void Function(int newInterval, int newLimit) onApply;
+  final bool onlyToday;
+  final void Function(int newInterval, int newLimit, bool onlyToday) onApply;
 
   const SettingsDialog({
     super.key,
     required this.pollInterval,
     required this.resultLimit,
+    required this.onlyToday,
     required this.onApply,
   });
 
@@ -333,12 +347,14 @@ class SettingsDialog extends StatefulWidget {
 class _SettingsDialogState extends State<SettingsDialog> {
   late TextEditingController _pollController;
   late TextEditingController _limitController;
+  late String _onlyTodaySetting;
 
   @override
   void initState() {
     super.initState();
     _pollController = TextEditingController(text: widget.pollInterval.toString());
     _limitController = TextEditingController(text: widget.resultLimit.toString());
+    _onlyTodaySetting = widget.onlyToday ? 'YES' : 'NO';
   }
 
   @override
@@ -379,6 +395,24 @@ class _SettingsDialogState extends State<SettingsDialog> {
                 ),
               )
             ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Text('Only Today:'),
+              const SizedBox(width: 10),
+              DropdownButton<String>(
+                value: _onlyTodaySetting,
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() {
+                      _onlyTodaySetting = value;
+                    });
+                  }
+                },
+                items: ['YES', 'NO'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+              )
+            ],
           )
         ],
       ),
@@ -391,7 +425,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
           onPressed: () {
             final newInterval = int.tryParse(_pollController.text) ?? widget.pollInterval;
             final newLimit = int.tryParse(_limitController.text) ?? widget.resultLimit;
-            widget.onApply(newInterval, newLimit);
+            final newOnlyToday = _onlyTodaySetting == 'YES';
+            widget.onApply(newInterval, newLimit, newOnlyToday);
             Navigator.pop(context);
           },
           child: const Text('Apply'),
