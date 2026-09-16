@@ -692,8 +692,9 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
                 ),
               ),
             ),
-            SizedBox(width: 12 * _scale),
           ],
+          // Keeps a long name from butting up against the timestamp.
+          SizedBox(width: 12 * _scale),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
