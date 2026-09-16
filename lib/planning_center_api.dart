@@ -28,8 +28,12 @@ class PcoEvent {
 class PlanningCenterApi {
   PlanningCenterApi({http.Client? client}) : _client = client ?? http.Client();
 
-  static const String _base =
-      'https://api.planningcenteronline.com/check-ins/v2';
+  /// Overridable with --dart-define=PCO_API_BASE=... so the app can be pointed
+  /// at a local stub while working on the UI.
+  static const String _base = String.fromEnvironment(
+    'PCO_API_BASE',
+    defaultValue: 'https://api.planningcenteronline.com/check-ins/v2',
+  );
 
   /// Safety net so a malformed `links.next` cannot loop forever.
   static const int _maxPages = 20;

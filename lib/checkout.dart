@@ -1,3 +1,4 @@
+import 'package:characters/characters.dart';
 import 'package:intl/intl.dart';
 
 /// Columns the check-out table can be sorted by.
@@ -23,6 +24,19 @@ class Checkout {
 
   /// Stable identity for "is this row new since the last poll?".
   String get key => '$rawTime|$name';
+
+  /// Up to two letters for the row avatar. Uses grapheme clusters so accented
+  /// letters and emoji are not split apart.
+  String get initials {
+    final parts = name
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '?';
+    final first = parts.first.characters.first;
+    if (parts.length == 1) return first.toUpperCase();
+    return '$first${parts.last.characters.first}'.toUpperCase();
+  }
 
   /// Builds a [Checkout] from one `data` entry of the check-ins API.
   /// Returns null when the entry has no usable check-out timestamp.
@@ -109,4 +123,24 @@ List<Checkout> sortCheckouts(
   final sorted = [...checkouts];
   sorted.sort((a, b) => compareCheckouts(a, b, sortBy, ascending: ascending));
   return sorted;
+}
+
+/// A glanceable "how long ago" label. Falls back to a date once a check-out is
+/// old enough that minutes and hours stop being useful.
+String relativeTime(DateTime time, {DateTime? now}) {
+  final difference = (now ?? DateTime.now()).difference(time);
+
+  if (difference.isNegative) return 'just now';
+  if (difference.inSeconds < 60) return 'just now';
+  if (difference.inMinutes < 60) {
+    final minutes = difference.inMinutes;
+    return '$minutes min ago';
+  }
+  if (difference.inHours < 24) {
+    final hours = difference.inHours;
+    return hours == 1 ? '1 hour ago' : '$hours hours ago';
+  }
+  if (difference.inDays == 1) return 'yesterday';
+  if (difference.inDays < 7) return '${difference.inDays} days ago';
+  return DateFormat('MMM d').format(time);
 }

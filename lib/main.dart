@@ -9,6 +9,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'api_credentials.dart';
 import 'checkout.dart';
 import 'planning_center_api.dart';
+import 'theme.dart';
 
 const int minPollInterval = 1;
 const int maxPollInterval = 3600;
@@ -21,7 +22,10 @@ class CheckoutsApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Checkouts Viewer',
+      title: 'Event Pulse',
+      theme: buildAppTheme(Brightness.light),
+      darkTheme: buildAppTheme(Brightness.dark),
+      themeMode: ThemeMode.system,
       home: const CheckoutsScreen(),
       debugShowCheckedModeBanner: false,
     );
@@ -45,11 +49,14 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
   CheckoutSort sortBy = CheckoutSort.checkedOutAt;
   bool sortAsc = false;
 
-  /// Keys seen on the previous successful poll, used to highlight arrivals.
-  /// Seeded on the first load of an event so the initial fetch does not light
-  /// up every row.
+  /// Keys present on the previous successful poll, used to detect arrivals.
+  /// Seeded on an event's first load so the initial fetch does not light up
+  /// every row.
   Set<String> _knownKeys = {};
-  Set<String> _newKeys = {};
+
+  /// When each currently-listed arrival was first seen, so the highlight can
+  /// fade out on its own instead of vanishing after exactly one poll.
+  final Map<String, DateTime> _firstSeen = {};
   bool _hasLoadedEvent = false;
 
   Timer? _countdownTimer;
@@ -58,12 +65,17 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
   int resultLimit = maxPerPage;
   bool onlyToday = false;
   bool keepAwake = true;
+  bool displayMode = false;
 
   bool _isFetching = false;
   bool _isRefreshing = false;
   bool _loadingEvents = false;
   String? _errorMessage;
   DateTime? _lastUpdated;
+
+  /// Type and spacing multiplier. Display mode is meant to be read from across
+  /// a room rather than from a desk.
+  double get _scale => displayMode ? 1.6 : 1.0;
 
   @override
   void initState() {
@@ -91,6 +103,7 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
       resultLimit = _clampLimit(prefs.getInt('resultLimit') ?? maxPerPage);
       onlyToday = prefs.getBool('onlyToday') ?? false;
       keepAwake = prefs.getBool('keepAwake') ?? true;
+      displayMode = prefs.getBool('displayMode') ?? false;
       selectedEventId = prefs.getString('selectedEventId');
       countdown = pollInterval;
     });
@@ -102,6 +115,7 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
     await prefs.setInt('resultLimit', resultLimit);
     await prefs.setBool('onlyToday', onlyToday);
     await prefs.setBool('keepAwake', keepAwake);
+    await prefs.setBool('displayMode', displayMode);
     final eventId = selectedEventId;
     if (eventId == null) {
       await prefs.remove('selectedEventId');
@@ -131,6 +145,7 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
     _countdownTimer?.cancel();
     setState(() => countdown = pollInterval);
 
+    // The one-second tick also drives the arrival highlight fading out.
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       if (countdown <= 1) {
@@ -193,7 +208,15 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
 
       final currentKeys = parsed.map((c) => c.key).toSet();
       setState(() {
-        _newKeys = _hasLoadedEvent ? currentKeys.difference(_knownKeys) : {};
+        if (_hasLoadedEvent) {
+          final now = DateTime.now();
+          for (final key in currentKeys.difference(_knownKeys)) {
+            _firstSeen[key] = now;
+          }
+        }
+        // Keep the map bounded to what is actually on screen.
+        _firstSeen.removeWhere((key, _) => !currentKeys.contains(key));
+
         _knownKeys = currentKeys;
         _hasLoadedEvent = true;
         checkedOutPeople = parsed;
@@ -226,12 +249,18 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
     }
   }
 
+  bool _isNew(String key) {
+    final seen = _firstSeen[key];
+    if (seen == null) return false;
+    return DateTime.now().difference(seen) < highlightDuration;
+  }
+
   void _onEventChanged(String? value) {
     setState(() {
       selectedEventId = value;
       checkedOutPeople = [];
       _knownKeys = {};
-      _newKeys = {};
+      _firstSeen.clear();
       _hasLoadedEvent = false;
       _errorMessage = null;
       _lastUpdated = null;
@@ -252,6 +281,11 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
       checkedOutPeople =
           sortCheckouts(checkedOutPeople, sortBy, ascending: sortAsc);
     });
+  }
+
+  void _toggleDisplayMode() {
+    setState(() => displayMode = !displayMode);
+    _savePreferences();
   }
 
   void _openSettings() {
@@ -288,91 +322,169 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
     super.dispose();
   }
 
+  String? get _selectedEventName {
+    final id = selectedEventId;
+    if (id == null) return null;
+    for (final event in events) {
+      if (event.id == id) return event.name;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (!ApiCredentials.isConfigured) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Checked Out Individuals')),
-        body: const Center(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Text(
-              'Planning Center credentials are not set.\n\n'
-              'Copy secrets.example.json to secrets.json, fill in PCO_APP_ID '
-              'and PCO_SECRET, then launch with:\n\n'
-              'flutter run --dart-define-from-file=secrets.json',
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-      );
-    }
+    if (!ApiCredentials.isConfigured) return const _CredentialsMissingScreen();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Checked Out Individuals'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh now',
-            onPressed: _isRefreshing ? null : _refreshAll,
-            icon: _isRefreshing
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh),
-          ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'settings') _openSettings();
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'settings', child: Text('Settings')),
-            ],
-          ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              if (_errorMessage != null) _buildErrorBanner(),
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 300),
-                  child: DropdownButton<String>(
-                    isExpanded: true,
-                    value: selectedEventId,
-                    hint: Text(
-                      _loadingEvents ? 'Loading events...' : 'Select an event',
-                    ),
-                    onChanged: _onEventChanged,
-                    items: events
-                        .map(
-                          (event) => DropdownMenuItem<String>(
-                            value: event.id,
-                            child: Text(event.name),
-                          ),
-                        )
-                        .toList(),
+      appBar: displayMode ? null : _buildAppBar(),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Column(
+              children: [
+                if (_errorMessage != null) _buildErrorBanner(),
+                _buildHeader(),
+                const Divider(),
+                Expanded(child: _buildBody()),
+                _buildFooter(),
+              ],
+            ),
+            if (displayMode)
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Opacity(
+                  opacity: 0.35,
+                  child: IconButton(
+                    tooltip: 'Exit display mode',
+                    onPressed: _toggleDisplayMode,
+                    icon: const Icon(Icons.fullscreen_exit),
                   ),
                 ),
               ),
-              Expanded(child: Center(child: _buildBody())),
-            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      title: const Text('Event Pulse'),
+      actions: [
+        IconButton(
+          tooltip: 'Refresh now',
+          onPressed: _isRefreshing ? null : _refreshAll,
+          icon: _isRefreshing
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.refresh),
+        ),
+        IconButton(
+          tooltip: 'Display mode',
+          onPressed: _toggleDisplayMode,
+          icon: const Icon(Icons.fullscreen),
+        ),
+        PopupMenuButton<String>(
+          onSelected: (value) {
+            if (value == 'settings') _openSettings();
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'settings', child: Text('Settings')),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeader() {
+    final scheme = Theme.of(context).colorScheme;
+    final eventName = _selectedEventName;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20 * _scale, 12 * _scale, 20 * _scale, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: displayMode
+                ? Text(
+                    eventName ?? 'Event Pulse',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 26 * _scale,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurface,
+                    ),
+                  )
+                : _buildEventSelector(),
           ),
-          Positioned(
-            bottom: 4,
-            right: 16,
-            child: Opacity(
-              opacity: 0.4,
-              child: Text(
-                _statusLine(),
-                style:
-                    const TextStyle(fontSize: 11, fontStyle: FontStyle.italic),
-              ),
+          SizedBox(width: 16 * _scale),
+          _buildCountBadge(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEventSelector() {
+    final scheme = Theme.of(context).colorScheme;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          isExpanded: true,
+          value: selectedEventId,
+          borderRadius: BorderRadius.circular(12),
+          hint: Text(_loadingEvents ? 'Loading events...' : 'Select an event'),
+          style: TextStyle(fontSize: 18, color: scheme.onSurface),
+          onChanged: _onEventChanged,
+          items: events
+              .map(
+                (event) => DropdownMenuItem<String>(
+                  value: event.id,
+                  child: Text(event.name, overflow: TextOverflow.ellipsis),
+                ),
+              )
+              .toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCountBadge() {
+    final scheme = Theme.of(context).colorScheme;
+    final count = checkedOutPeople.length;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: 16 * _scale,
+        vertical: 8 * _scale,
+      ),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$count',
+            style: TextStyle(
+              fontSize: 22 * _scale,
+              fontWeight: FontWeight.w700,
+              color: scheme.onPrimaryContainer,
+            ),
+          ),
+          SizedBox(width: 8 * _scale),
+          Text(
+            'checked out',
+            style: TextStyle(
+              fontSize: 13 * _scale,
+              color: scheme.onPrimaryContainer,
             ),
           ),
         ],
@@ -380,11 +492,54 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
     );
   }
 
-  String _statusLine() {
+  Widget _buildFooter() {
+    final scheme = Theme.of(context).colorScheme;
     final updated = _lastUpdated;
-    final refreshing = 'Refreshing in $countdown...';
-    if (updated == null) return refreshing;
-    return 'Updated ${DateFormat('h:mm:ss a').format(updated)} - $refreshing';
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20 * _scale, 8, 20 * _scale, 10),
+      child: Row(
+        children: [
+          if (!displayMode && checkedOutPeople.isNotEmpty) ...[
+            _buildSortButton('Name', CheckoutSort.name),
+            const SizedBox(width: 4),
+            _buildSortButton('Time', CheckoutSort.checkedOutAt),
+          ],
+          const Spacer(),
+          Text(
+            updated == null
+                ? 'Refreshing in $countdown s'
+                : 'Updated ${DateFormat('h:mm:ss a').format(updated)}  -  '
+                    'refreshing in $countdown s',
+            style: TextStyle(
+              fontSize: 12 * _scale,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSortButton(String label, CheckoutSort column) {
+    final scheme = Theme.of(context).colorScheme;
+    final active = sortBy == column;
+
+    return TextButton.icon(
+      onPressed: () => _onSort(column),
+      style: TextButton.styleFrom(
+        foregroundColor: active ? scheme.primary : scheme.onSurfaceVariant,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        visualDensity: VisualDensity.compact,
+      ),
+      icon: Icon(
+        active
+            ? (sortAsc ? Icons.arrow_upward : Icons.arrow_downward)
+            : Icons.unfold_more,
+        size: 16,
+      ),
+      label: Text(label, style: const TextStyle(fontSize: 13)),
+    );
   }
 
   Widget _buildErrorBanner() {
@@ -392,15 +547,15 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
     return Material(
       color: scheme.errorContainer,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+        padding: const EdgeInsets.fromLTRB(20, 10, 8, 10),
         child: Row(
           children: [
-            Icon(Icons.error_outline, size: 18, color: scheme.onErrorContainer),
-            const SizedBox(width: 10),
+            Icon(Icons.error_outline, size: 20, color: scheme.onErrorContainer),
+            const SizedBox(width: 12),
             Expanded(
               child: Text(
                 _errorMessage!,
-                style: TextStyle(color: scheme.onErrorContainer, fontSize: 13),
+                style: TextStyle(color: scheme.onErrorContainer, fontSize: 14),
               ),
             ),
             TextButton(
@@ -414,54 +569,211 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
   }
 
   Widget _buildBody() {
+    final scheme = Theme.of(context).colorScheme;
+
     if (selectedEventId == null) {
-      return Text(
-        _loadingEvents ? 'Loading events...' : 'Select an event to begin.',
-        style: const TextStyle(color: Colors.black54),
+      return _buildPlaceholder(
+        icon: Icons.event_outlined,
+        message: _loadingEvents
+            ? 'Loading events...'
+            : 'Select an event to begin.',
       );
     }
 
     if (!_hasLoadedEvent && _errorMessage == null) {
-      return const CircularProgressIndicator();
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (checkedOutPeople.isEmpty) {
-      return Text(
-        onlyToday
+      return _buildPlaceholder(
+        icon: Icons.check_circle_outline,
+        message: onlyToday
             ? 'No check-outs today for this event.'
             : 'No check-outs for this event.',
-        style: const TextStyle(color: Colors.black54),
       );
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.vertical,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          sortColumnIndex: sortBy == CheckoutSort.name ? 0 : 1,
-          sortAscending: sortAsc,
-          columns: [
-            DataColumn(
-              label: const Text('Name'),
-              onSort: (_, __) => _onSort(CheckoutSort.name),
+    return ListView.builder(
+      padding: EdgeInsets.fromLTRB(16 * _scale, 8, 16 * _scale, 8),
+      itemCount: checkedOutPeople.length,
+      itemBuilder: (context, index) =>
+          _buildPersonRow(checkedOutPeople[index], scheme),
+    );
+  }
+
+  Widget _buildPlaceholder({required IconData icon, required String message}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 48 * _scale, color: scheme.outline),
+          SizedBox(height: 16 * _scale),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 16 * _scale,
+              color: scheme.onSurfaceVariant,
             ),
-            DataColumn(
-              label: const Text('Checked Out At'),
-              onSort: (_, __) => _onSort(CheckoutSort.checkedOutAt),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPersonRow(Checkout person, ColorScheme scheme) {
+    final isNew = _isNew(person.key);
+    final background =
+        isNew ? newArrivalColor(scheme) : scheme.surfaceContainerHighest;
+    final foreground = isNew ? onNewArrivalColor(scheme) : scheme.onSurface;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 700),
+      curve: Curves.easeOut,
+      margin: EdgeInsets.only(bottom: 8 * _scale),
+      padding: EdgeInsets.symmetric(
+        horizontal: 16 * _scale,
+        vertical: 12 * _scale,
+      ),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isNew ? scheme.tertiary : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22 * _scale,
+            backgroundColor:
+                isNew ? scheme.tertiary : scheme.primaryContainer,
+            child: Text(
+              person.initials,
+              style: TextStyle(
+                fontSize: 16 * _scale,
+                fontWeight: FontWeight.w600,
+                color: isNew ? scheme.onTertiary : scheme.onPrimaryContainer,
+              ),
             ),
+          ),
+          SizedBox(width: 16 * _scale),
+          Expanded(
+            child: Text(
+              person.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 20 * _scale,
+                fontWeight: FontWeight.w600,
+                color: foreground,
+              ),
+            ),
+          ),
+          if (isNew) ...[
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: 10 * _scale,
+                vertical: 4 * _scale,
+              ),
+              decoration: BoxDecoration(
+                color: scheme.tertiary,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                'NEW',
+                style: TextStyle(
+                  fontSize: 11 * _scale,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                  color: scheme.onTertiary,
+                ),
+              ),
+            ),
+            SizedBox(width: 12 * _scale),
           ],
-          rows: checkedOutPeople.map((person) {
-            return DataRow(
-              color: _newKeys.contains(person.key)
-                  ? WidgetStateProperty.all(Colors.yellow[100])
-                  : null,
-              cells: [
-                DataCell(Text(person.name)),
-                DataCell(Text(person.formattedTime)),
-              ],
-            );
-          }).toList(),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                relativeTime(person.checkedOutAt),
+                style: TextStyle(
+                  fontSize: 15 * _scale,
+                  fontWeight: FontWeight.w500,
+                  color: foreground,
+                ),
+              ),
+              SizedBox(height: 2 * _scale),
+              Text(
+                person.formattedTime,
+                style: TextStyle(
+                  fontSize: 12 * _scale,
+                  color: isNew
+                      ? onNewArrivalColor(scheme)
+                      : scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CredentialsMissingScreen extends StatelessWidget {
+  const _CredentialsMissingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Event Pulse')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.key_off_outlined, size: 48, color: scheme.outline),
+              const SizedBox(height: 20),
+              Text(
+                'Planning Center credentials are not set',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Copy secrets.example.json to secrets.json, fill in PCO_APP_ID '
+                'and PCO_SECRET, then launch with:',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: SelectableText(
+                  'flutter run --dart-define-from-file=secrets.json',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 14,
+                    color: scheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -522,7 +834,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
     return AlertDialog(
       title: const Text('Settings'),
       content: SizedBox(
-        width: 340,
+        width: 360,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -534,7 +846,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
                 helperText: 'Between $minPollInterval and $maxPollInterval',
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             TextField(
               keyboardType: TextInputType.number,
               controller: _limitController,

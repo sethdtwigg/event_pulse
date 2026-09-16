@@ -14,13 +14,18 @@ Runs on Android, Windows, macOS, Linux, iOS, and the web.
 ## Features
 
 - **Live check-out list** for a selected event, polled on a configurable interval.
-- **New arrivals highlighted** in yellow for one refresh cycle, so you notice
-  someone the moment they appear.
+- **New arrivals stand out** with an accent row, a NEW badge, and a live count,
+  fading back to normal after 30 seconds.
+- **Relative times** — "7 min ago" next to the clock time, so the board reads
+  at a glance.
+- **Display mode** scales everything up and drops the chrome, for a screen
+  mounted on a wall.
+- **Light and dark themes**, following the system setting.
 - **Only Today** filter to hide check-outs carried over from previous days.
 - **Sortable** by name or check-out time; your sort survives each refresh.
-- **Remembers** your event and settings between launches.
+- **Remembers** your event, settings, and display mode between launches.
 - **Keep Screen Awake** for unattended displays.
-- **Visible failures** — a banner with a Retry button instead of a table that
+- **Visible failures** — a banner with a Retry button instead of a list that
   quietly stops updating.
 
 ## Setup
@@ -115,6 +120,16 @@ settings refreshes immediately rather than waiting out the countdown.
 The **↻** button in the toolbar reloads the event list and check-outs on demand —
 useful if the app started without a network connection.
 
+## Display mode
+
+The fullscreen button in the toolbar switches to display mode: the event name
+becomes the header, type scales up about 60%, and the toolbar and event picker
+disappear. It is meant to be read from across a room. A faint button in the
+top-right corner exits. The choice is remembered between launches, so a
+wall-mounted device comes back up in display mode after a restart.
+
+Pair it with **Keep Screen Awake** so the device does not sleep.
+
 ## How it works
 
 The app polls this endpoint, newest check-out first:
@@ -137,6 +152,7 @@ oldest of today's will fall off the bottom — raise the limit if that matters.
 | File | Responsibility |
 | --- | --- |
 | [`lib/main.dart`](lib/main.dart) | UI, polling timer, settings dialog |
+| [`lib/theme.dart`](lib/theme.dart) | Light/dark palettes and the highlight duration |
 | [`lib/checkout.dart`](lib/checkout.dart) | `Checkout` model plus pure parse/filter/sort logic |
 | [`lib/planning_center_api.dart`](lib/planning_center_api.dart) | HTTP, pagination, and error messages |
 | [`lib/api_credentials.dart`](lib/api_credentials.dart) | Build-time credentials |
@@ -144,6 +160,14 @@ oldest of today's will fall off the bottom — raise the limit if that matters.
 
 Check-out times are kept as `DateTime` and sorted as instants. Sorting the
 formatted display string would order by month *name* — "Apr" before "Jan".
+
+To work on the UI without hitting the real API, point the app at a local stub
+that serves the same JSON shape:
+
+```bash
+flutter run --dart-define-from-file=secrets.json --dart-define=PCO_API_BASE=http://localhost:8788
+```
+
 
 ## Tests
 

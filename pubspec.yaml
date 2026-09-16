@@ -17,6 +17,7 @@ dependencies:
   # Android side needs a Kotlin 2.x toolchain, and 1.5.0+ needs Dart 3.10.
   # Raising this means upgrading Gradle/AGP/Kotlin in android/ as well.
   wakelock_plus: '>=1.2.0 <1.4.0'
+  characters: ^1.3.0
 
 dev_dependencies:
   flutter_test:

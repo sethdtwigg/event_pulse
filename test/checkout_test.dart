@@ -193,6 +193,68 @@ void main() {
     });
   });
 
+  group('Checkout.initials', () {
+    final time = localAt(2026, 5, 5);
+
+    test('uses first and last name', () {
+      expect(checkout('Ada Lovelace', time).initials, 'AL');
+    });
+
+    test('uses first and last of three parts', () {
+      expect(checkout('Ada King Lovelace', time).initials, 'AL');
+    });
+
+    test('handles a single name', () {
+      expect(checkout('Ada', time).initials, 'A');
+    });
+
+    test('handles the Unknown fallback', () {
+      expect(checkout('Unknown', time).initials, 'U');
+    });
+
+    test('does not split a multi-byte grapheme', () {
+      expect(checkout('Emoji', time).initials, 'E');
+      expect(checkout('Ada Lovelace', time).initials.length, 2);
+    });
+  });
+
+  group('relativeTime', () {
+    final now = localAt(2026, 9, 16, 12);
+
+    test('reads as just now under a minute', () {
+      expect(relativeTime(now.subtract(const Duration(seconds: 30)), now: now),
+          'just now');
+    });
+
+    test('reads in minutes under an hour', () {
+      expect(relativeTime(now.subtract(const Duration(minutes: 5)), now: now),
+          '5 min ago');
+    });
+
+    test('singularises one hour', () {
+      expect(relativeTime(now.subtract(const Duration(minutes: 75)), now: now),
+          '1 hour ago');
+    });
+
+    test('reads in hours under a day', () {
+      expect(relativeTime(now.subtract(const Duration(hours: 5)), now: now),
+          '5 hours ago');
+    });
+
+    test('reads as yesterday, then days, then a date', () {
+      expect(relativeTime(now.subtract(const Duration(days: 1)), now: now),
+          'yesterday');
+      expect(relativeTime(now.subtract(const Duration(days: 3)), now: now),
+          '3 days ago');
+      expect(relativeTime(localAt(2026, 1, 4), now: now), 'Jan 4');
+    });
+
+    test('does not produce a negative label for clock skew', () {
+      expect(relativeTime(now.add(const Duration(minutes: 2)), now: now),
+          'just now');
+    });
+  });
+
   group('isSameLocalDay', () {
     test('true within a day, false across midnight', () {
       expect(
