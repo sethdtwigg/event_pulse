@@ -452,28 +452,46 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
     final scheme = Theme.of(context).colorScheme;
     final eventName = _selectedEventName;
 
+    final title = displayMode
+        ? Text(
+            eventName ?? 'Event Pulse',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 26 * _scale,
+              fontWeight: FontWeight.w700,
+              color: scheme.onSurface,
+            ),
+          )
+        : _buildEventSelector();
+
     return Padding(
       padding: EdgeInsets.fromLTRB(20 * _scale, 12 * _scale, 20 * _scale, 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(
-            child: displayMode
-                ? Text(
-                    eventName ?? 'Event Pulse',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 26 * _scale,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.onSurface,
-                    ),
-                  )
-                : _buildEventSelector(),
-          ),
-          SizedBox(width: 16 * _scale),
-          _buildCountBadge(),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // At display-mode type sizes a phone cannot fit the event name and
+          // the count on one line, and the name loses -- it collapsed to "Su…".
+          // Stack them instead so the name keeps the full width.
+          if (displayMode && constraints.maxWidth < 700) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                title,
+                SizedBox(height: 10 * _scale),
+                _buildCountBadge(),
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: title),
+              SizedBox(width: 16 * _scale),
+              _buildCountBadge(),
+            ],
+          );
+        },
       ),
     );
   }
