@@ -13,6 +13,10 @@ dependencies:
   intl: ^0.20.2
   shared_preferences: ^2.5.3
   flutter_launcher_icons: ^0.14.3
+  # Pinned below 1.4.0 on purpose: 1.4.0+ pulls package_info_plus 9, whose
+  # Android side needs a Kotlin 2.x toolchain, and 1.5.0+ needs Dart 3.10.
+  # Raising this means upgrading Gradle/AGP/Kotlin in android/ as well.
+  wakelock_plus: '>=1.2.0 <1.4.0'
 
 dev_dependencies:
   flutter_test:
