@@ -18,9 +18,9 @@ Runs on Android, Windows, macOS, Linux, iOS, and the web.
   fading back to normal after 30 seconds.
 - **Relative times** — "7 min ago" next to the clock time, so the board reads
   at a glance.
-- **Display mode** scales everything up and drops the chrome, for a screen
-  mounted on a wall.
-- **Light and dark themes**, following the system setting.
+- **Display mode** shows names only, much larger, for a screen mounted on a
+  wall.
+- **Light and dark themes** — follow the system setting, or pin one in Settings.
 - **Only Today** filter to hide check-outs carried over from previous days.
 - **Sortable** by name or check-out time; your sort survives each refresh.
 - **Remembers** your event, settings, and display mode between launches.
@@ -113,6 +113,7 @@ Open the **⋮** menu → **Settings**.
 | Result Limit | 100 | Clamped to 1–100; 100 is the API's `per_page` maximum. |
 | Only Today | Off | Hides check-outs from previous days, using your local timezone. |
 | Keep Screen Awake | On | Ignored on platforms without wakelock support. |
+| Theme | System | System follows the device; Light and Dark pin it. |
 
 Settings and the selected event persist via `shared_preferences`. Applying
 settings refreshes immediately rather than waiting out the countdown.
@@ -122,11 +123,19 @@ useful if the app started without a network connection.
 
 ## Display mode
 
-The fullscreen button in the toolbar switches to display mode: the event name
-becomes the header, type scales up about 60%, and the toolbar and event picker
-disappear. It is meant to be read from across a room. A faint button in the
-top-right corner exits. The choice is remembered between launches, so a
-wall-mounted device comes back up in display mode after a restart.
+The fullscreen button in the toolbar switches to display mode, meant to be read
+from across a room:
+
+- Each card shows **only the name**, at roughly double size, across the full
+  width of the card, wrapping to a second line rather than truncating. The
+  avatar, both timestamps, and the NEW badge are dropped so nothing competes
+  with the name.
+- New arrivals still stand out, from the card's accent colour and border.
+- The event name becomes the header, and the toolbar and event picker disappear.
+
+A faint button in the top-right corner exits. The choice is remembered between
+launches, so a wall-mounted device comes back up in display mode after a
+restart.
 
 Pair it with **Keep Screen Awake** so the device does not sleep.
 

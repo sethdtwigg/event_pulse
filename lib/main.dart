@@ -14,10 +14,38 @@ import 'theme.dart';
 const int minPollInterval = 1;
 const int maxPollInterval = 3600;
 
-void main() => runApp(const CheckoutsApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Resolved before the first frame so a saved dark theme does not start with
+  // a flash of light, which is exactly what you would notice on a wall display
+  // in a dim room.
+  final prefs = await SharedPreferences.getInstance();
+  runApp(
+    CheckoutsApp(
+      initialThemeMode: themeModeFromName(prefs.getString('themeMode')),
+    ),
+  );
+}
 
-class CheckoutsApp extends StatelessWidget {
-  const CheckoutsApp({super.key});
+/// Owns the theme mode, because [MaterialApp] is what applies it and the
+/// setting that changes it lives further down the tree.
+class CheckoutsApp extends StatefulWidget {
+  const CheckoutsApp({super.key, this.initialThemeMode = ThemeMode.system});
+
+  final ThemeMode initialThemeMode;
+
+  @override
+  State<CheckoutsApp> createState() => _CheckoutsAppState();
+}
+
+class _CheckoutsAppState extends State<CheckoutsApp> {
+  late ThemeMode _themeMode = widget.initialThemeMode;
+
+  Future<void> _setThemeMode(ThemeMode mode) async {
+    setState(() => _themeMode = mode);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('themeMode', themeModeName(mode));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,15 +53,25 @@ class CheckoutsApp extends StatelessWidget {
       title: 'Event Pulse',
       theme: buildAppTheme(Brightness.light),
       darkTheme: buildAppTheme(Brightness.dark),
-      themeMode: ThemeMode.system,
-      home: const CheckoutsScreen(),
+      themeMode: _themeMode,
+      home: CheckoutsScreen(
+        themeMode: _themeMode,
+        onThemeModeChanged: _setThemeMode,
+      ),
       debugShowCheckedModeBanner: false,
     );
   }
 }
 
 class CheckoutsScreen extends StatefulWidget {
-  const CheckoutsScreen({super.key});
+  const CheckoutsScreen({
+    super.key,
+    required this.themeMode,
+    required this.onThemeModeChanged,
+  });
+
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
 
   @override
   State<CheckoutsScreen> createState() => _CheckoutsScreenState();
@@ -296,8 +334,18 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
         resultLimit: resultLimit,
         onlyToday: onlyToday,
         keepAwake: keepAwake,
-        onApply: (newInterval, newLimit, newOnlyToday, newKeepAwake) {
+        themeMode: widget.themeMode,
+        onApply: (
+          newInterval,
+          newLimit,
+          newOnlyToday,
+          newKeepAwake,
+          newThemeMode,
+        ) {
           final awakeChanged = newKeepAwake != keepAwake;
+          if (newThemeMode != widget.themeMode) {
+            widget.onThemeModeChanged(newThemeMode);
+          }
           setState(() {
             pollInterval = newInterval;
             resultLimit = newLimit;
@@ -574,9 +622,8 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
     if (selectedEventId == null) {
       return _buildPlaceholder(
         icon: Icons.event_outlined,
-        message: _loadingEvents
-            ? 'Loading events...'
-            : 'Select an event to begin.',
+        message:
+            _loadingEvents ? 'Loading events...' : 'Select an event to begin.',
       );
     }
 
@@ -644,82 +691,98 @@ class _CheckoutsScreenState extends State<CheckoutsScreen> {
           width: 2,
         ),
       ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 22 * _scale,
-            backgroundColor:
-                isNew ? scheme.tertiary : scheme.primaryContainer,
-            child: Text(
-              person.initials,
-              style: TextStyle(
-                fontSize: 16 * _scale,
-                fontWeight: FontWeight.w600,
-                color: isNew ? scheme.onTertiary : scheme.onPrimaryContainer,
-              ),
-            ),
-          ),
-          SizedBox(width: 16 * _scale),
-          Expanded(
-            child: Text(
+      // In display mode the name is the whole point, so it gets the full width
+      // of the card and room to wrap rather than competing with an avatar, two
+      // timestamps and a badge. Arrivals still read as new from the card colour.
+      child: displayMode
+          ? Text(
               person.name,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 20 * _scale,
+                fontSize: 34,
                 fontWeight: FontWeight.w600,
+                height: 1.15,
                 color: foreground,
               ),
+            )
+          : Row(
+              children: [
+                CircleAvatar(
+                  radius: 22 * _scale,
+                  backgroundColor:
+                      isNew ? scheme.tertiary : scheme.primaryContainer,
+                  child: Text(
+                    person.initials,
+                    style: TextStyle(
+                      fontSize: 16 * _scale,
+                      fontWeight: FontWeight.w600,
+                      color:
+                          isNew ? scheme.onTertiary : scheme.onPrimaryContainer,
+                    ),
+                  ),
+                ),
+                SizedBox(width: 16 * _scale),
+                Expanded(
+                  child: Text(
+                    person.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 20 * _scale,
+                      fontWeight: FontWeight.w600,
+                      color: foreground,
+                    ),
+                  ),
+                ),
+                if (isNew) ...[
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 10 * _scale,
+                      vertical: 4 * _scale,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.tertiary,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      'NEW',
+                      style: TextStyle(
+                        fontSize: 11 * _scale,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                        color: scheme.onTertiary,
+                      ),
+                    ),
+                  ),
+                ],
+                // Keeps a long name from butting up against the timestamp.
+                SizedBox(width: 12 * _scale),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      relativeTime(person.checkedOutAt),
+                      style: TextStyle(
+                        fontSize: 15 * _scale,
+                        fontWeight: FontWeight.w500,
+                        color: foreground,
+                      ),
+                    ),
+                    SizedBox(height: 2 * _scale),
+                    Text(
+                      person.formattedTime,
+                      style: TextStyle(
+                        fontSize: 12 * _scale,
+                        color: isNew
+                            ? onNewArrivalColor(scheme)
+                            : scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ),
-          if (isNew) ...[
-            Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: 10 * _scale,
-                vertical: 4 * _scale,
-              ),
-              decoration: BoxDecoration(
-                color: scheme.tertiary,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                'NEW',
-                style: TextStyle(
-                  fontSize: 11 * _scale,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.5,
-                  color: scheme.onTertiary,
-                ),
-              ),
-            ),
-          ],
-          // Keeps a long name from butting up against the timestamp.
-          SizedBox(width: 12 * _scale),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                relativeTime(person.checkedOutAt),
-                style: TextStyle(
-                  fontSize: 15 * _scale,
-                  fontWeight: FontWeight.w500,
-                  color: foreground,
-                ),
-              ),
-              SizedBox(height: 2 * _scale),
-              Text(
-                person.formattedTime,
-                style: TextStyle(
-                  fontSize: 12 * _scale,
-                  color: isNew
-                      ? onNewArrivalColor(scheme)
-                      : scheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }
@@ -786,11 +849,13 @@ class SettingsDialog extends StatefulWidget {
   final int resultLimit;
   final bool onlyToday;
   final bool keepAwake;
+  final ThemeMode themeMode;
   final void Function(
     int newInterval,
     int newLimit,
     bool onlyToday,
     bool keepAwake,
+    ThemeMode themeMode,
   ) onApply;
 
   const SettingsDialog({
@@ -799,6 +864,7 @@ class SettingsDialog extends StatefulWidget {
     required this.resultLimit,
     required this.onlyToday,
     required this.keepAwake,
+    required this.themeMode,
     required this.onApply,
   });
 
@@ -811,6 +877,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
   late TextEditingController _limitController;
   late bool _onlyToday;
   late bool _keepAwake;
+  late ThemeMode _themeMode;
 
   @override
   void initState() {
@@ -821,6 +888,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
         TextEditingController(text: widget.resultLimit.toString());
     _onlyToday = widget.onlyToday;
     _keepAwake = widget.keepAwake;
+    _themeMode = widget.themeMode;
   }
 
   @override
@@ -871,6 +939,26 @@ class _SettingsDialogState extends State<SettingsDialog> {
               value: _keepAwake,
               onChanged: (value) => setState(() => _keepAwake = value),
             ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(child: Text('Theme')),
+                DropdownButton<ThemeMode>(
+                  value: _themeMode,
+                  onChanged: (value) {
+                    if (value != null) setState(() => _themeMode = value);
+                  },
+                  items: ThemeMode.values
+                      .map(
+                        (mode) => DropdownMenuItem(
+                          value: mode,
+                          child: Text(themeModeLabel(mode)),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -889,11 +977,17 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     widget.pollInterval)
                 .clamp(minPollInterval, maxPollInterval)
                 .toInt();
-            final newLimit =
-                (int.tryParse(_limitController.text.trim()) ?? widget.resultLimit)
-                    .clamp(1, maxPerPage)
-                    .toInt();
-            widget.onApply(newInterval, newLimit, _onlyToday, _keepAwake);
+            final newLimit = (int.tryParse(_limitController.text.trim()) ??
+                    widget.resultLimit)
+                .clamp(1, maxPerPage)
+                .toInt();
+            widget.onApply(
+              newInterval,
+              newLimit,
+              _onlyToday,
+              _keepAwake,
+              _themeMode,
+            );
             Navigator.pop(context);
           },
           child: const Text('Apply'),

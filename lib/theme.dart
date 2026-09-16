@@ -47,3 +47,38 @@ ThemeData buildAppTheme(Brightness brightness) {
 Color newArrivalColor(ColorScheme scheme) => scheme.tertiaryContainer;
 
 Color onNewArrivalColor(ColorScheme scheme) => scheme.onTertiaryContainer;
+
+/// Persisted form of [ThemeMode]. Stored as a string so an unknown or removed
+/// value falls back to following the system instead of throwing.
+String themeModeName(ThemeMode mode) {
+  switch (mode) {
+    case ThemeMode.light:
+      return 'light';
+    case ThemeMode.dark:
+      return 'dark';
+    case ThemeMode.system:
+      return 'system';
+  }
+}
+
+ThemeMode themeModeFromName(String? name) {
+  switch (name) {
+    case 'light':
+      return ThemeMode.light;
+    case 'dark':
+      return ThemeMode.dark;
+    default:
+      return ThemeMode.system;
+  }
+}
+
+String themeModeLabel(ThemeMode mode) {
+  switch (mode) {
+    case ThemeMode.light:
+      return 'Light';
+    case ThemeMode.dark:
+      return 'Dark';
+    case ThemeMode.system:
+      return 'System';
+  }
+}
